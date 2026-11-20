@@ -21,6 +21,12 @@ export function useTime(clock) {
   return useSyncExternalStore(clock.subscribe, clock.read);
 }
 
+function mediaEnd(media) {
+  const seconds = media.duration;
+  // YouTube exposes play controls before it knows the video's length.
+  return seconds === 0 ? Infinity : seconds;
+}
+
 export function usePlayback(duration, mediaRef, onError) {
   const [clock] = useState(createClock);
   const [playing, setPlaying] = useState(false);
@@ -37,21 +43,22 @@ export function usePlayback(duration, mediaRef, onError) {
     media.play().catch((error) => {
       if (id === request.current && mediaRef.current === media && error.name !== 'AbortError') {
         pause();
-        onError('浏览器无法开始播放这个媒体文件。');
+        onError('浏览器无法开始播放这段媒体。');
       }
     });
   }
 
-  function seek(seconds) {
-    const time = Math.max(0, Math.min(duration, seconds));
+  function seek(seconds, limit = duration) {
+    const time = Math.max(0, Math.min(limit, seconds));
     clock.write(time);
     const media = mediaRef.current;
     if (media && Number.isFinite(media.duration)) {
-      media.currentTime = Math.min(time, media.duration);
-      if (time >= media.duration) media.pause();
-      else if (playing && media.paused && time < duration) playMedia(media);
+      const end = mediaEnd(media);
+      media.currentTime = Math.min(time, end);
+      if (time >= end) media.pause();
+      else if (playing && media.paused && time < limit) playMedia(media);
     }
-    if (time >= duration) pause();
+    if (time >= limit) pause();
   }
 
   function toggle() {
@@ -65,11 +72,20 @@ export function usePlayback(duration, mediaRef, onError) {
       onError('媒体正在加载，请稍后再播放。');
       return;
     }
-    if (media && clock.read() < media.duration) {
+    if (media && clock.read() < mediaEnd(media)) {
       media.currentTime = clock.read();
       playMedia(media);
     }
     setPlaying(true);
+  }
+
+  function syncMedia(state, seconds) {
+    if (!Number.isFinite(seconds)) return;
+    const media = mediaRef.current;
+    if (state === 'paused' && media && clock.read() > mediaEnd(media)) return;
+    clock.write(Math.max(0, Math.min(duration, seconds)));
+    if (seconds >= duration) pause();
+    else if (state !== 'ended') setPlaying(state === 'playing');
   }
 
   useEffect(() => {
@@ -79,7 +95,7 @@ export function usePlayback(duration, mediaRef, onError) {
     function tick(now) {
       const media = mediaRef.current;
       const time = clock.read();
-      const followsMedia = media && Number.isFinite(media.duration) && time < media.duration;
+      const followsMedia = media && Number.isFinite(media.duration) && time < mediaEnd(media);
       // The media element owns the clock while its audio or video is playing.
       const next = followsMedia ? media.currentTime : time + Math.max(0, now - last) / 1000;
       clock.write(Math.min(next, duration));
@@ -91,7 +107,7 @@ export function usePlayback(duration, mediaRef, onError) {
     return () => cancelAnimationFrame(animation);
   }, [clock, duration, mediaRef, pause, playing]);
 
-  return { clock, playing, pause, seek, toggle };
+  return { clock, playing, pause, seek, toggle, syncMedia };
 }
 
 export async function measureWaveform(file, duration) {

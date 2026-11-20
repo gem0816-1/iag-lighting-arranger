@@ -42,6 +42,7 @@ export default function App() {
   const inputMedia = useRef(null);
   const inputProject = useRef(null);
   const mediaRef = useRef(null);
+  const mediaSequence = useRef(0);
   const projectRequest = useRef(0);
   const duration = secondsAt(sheet.duration_frames, sheet.fps);
   const selected = sheet.cues.find((cue) => cue.id === selectedId);
@@ -56,8 +57,8 @@ export default function App() {
     }
   }, [sheet]);
 
-  const mediaUrl = media?.url;
-  useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
+  const localMediaUrl = media?.file ? media.url : undefined;
+  useEffect(() => () => { if (localMediaUrl) URL.revokeObjectURL(localMediaUrl); }, [localMediaUrl]);
 
   function commit(next) {
     setHistory((current) => next === current.sheet ? current : {
@@ -127,9 +128,20 @@ export default function App() {
     const file = input.files[0];
     input.value = '';
     if (!file) return;
-    playback.pause();
     const kind = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name) ? 'video' : 'audio';
-    setMedia({ file, kind, url: URL.createObjectURL(file), status: 'loading', seconds: 0, peaks: null });
+    loadMedia({ file, kind, url: URL.createObjectURL(file), label: file.name });
+  }
+
+  function loadMedia(source) {
+    playback.pause();
+    if (!sheet.cues.length) playback.clock.write(0);
+    const id = ++mediaSequence.current;
+    setMedia({ ...source, id, status: source.kind === 'bilibili' ? 'ready' : 'loading', seconds: 0, peaks: null });
+  }
+
+  function removeMedia() {
+    playback.pause();
+    setMedia(null);
   }
 
   function resize(seconds) {
@@ -138,29 +150,69 @@ export default function App() {
     commit(next);
   }
 
-  function handleMetadata(event) {
-    const element = event.currentTarget;
-    if (!media || element.currentSrc !== media.url) return;
-    const seconds = element.duration;
+  function handleDuration(id, seconds) {
+    if (media?.id !== id || media.seconds || media.status === 'error') return;
     if (!Number.isFinite(seconds) || seconds <= 0) {
-      handleMediaError(event);
+      handleReferenceError(id, '请输入有固定时长、可以回看的视频。');
       return;
     }
-    setMedia({ ...media, status: 'ready', seconds });
+    setMedia((current) => current?.id === id ? { ...current, status: 'ready', seconds } : current);
     if (!sheet.cues.length && seconds <= 86_400) {
-      resize(Math.max(secondsAt(1, sheet.fps), seconds));
+      const next = resizeSheet(sheet, Math.max(secondsAt(1, sheet.fps), seconds));
+      commit(next);
+      const limit = secondsAt(next.duration_frames, next.fps);
+      if (playback.clock.read() > limit) playback.seek(limit, limit);
     }
-    element.currentTime = Math.min(playback.clock.read(), seconds);
-    measureWaveform(media.file, seconds).then((peaks) => {
-      setMedia((current) => current?.url === media.url ? { ...current, peaks } : current);
-    }).catch(() => {});
+    if (media.file) {
+      measureWaveform(media.file, seconds).then((peaks) => {
+        setMedia((current) => current?.id === id ? { ...current, peaks } : current);
+      }).catch(() => {});
+    }
+  }
+
+  function handleMetadata(event) {
+    const element = event.currentTarget;
+    if (!media || element !== mediaRef.current) return;
+    handleDuration(media.id, element.duration);
+    if (Number.isFinite(element.duration) && element.duration > 0) {
+      element.currentTime = Math.min(playback.clock.read(), element.duration);
+    }
+  }
+
+  function handleEmbeddedReady(id) {
+    setMedia((current) => current?.id === id && current.status !== 'error' ? { ...current, status: 'ready' } : current);
+  }
+
+  function handleReferenceError(id, text) {
+    if (media?.id !== id) return;
+    playback.pause();
+    if (media.file) {
+      setMedia(null);
+      message.error(text);
+    } else {
+      setMedia({ ...media, status: 'error', error: text });
+    }
   }
 
   function handleMediaError(event) {
-    if (event.currentTarget !== mediaRef.current) return;
+    if (!media || event.currentTarget !== mediaRef.current) return;
+    handleReferenceError(media.id, media.file
+      ? '浏览器无法读取这个媒体。可以试试 WAV、MP3 或常见的 MP4。'
+      : '这个网址无法作为媒体播放。请检查链接是否可访问，或试试视频文件直链、B 站或 YouTube 视频页。');
+  }
+
+  function locateBilibiliTime(seconds) {
+    const frame = frameAt(seconds, sheet.fps);
+    let limit = duration;
+    if (frame >= sheet.duration_frames) {
+      const next = resizeSheet(sheet, Math.min(86_400, seconds + Math.max(2, secondsAt(1, sheet.fps))));
+      if (frame >= next.duration_frames) throw new Error('此时间超出工程可编排的范围。');
+      commit(next);
+      limit = secondsAt(next.duration_frames, next.fps);
+    }
     playback.pause();
-    setMedia(null);
-    message.error('浏览器无法读取这个媒体。可以试试 WAV、MP3 或常见的 MP4。');
+    setSelectedId(null);
+    playback.seek(seconds, limit);
   }
 
   function selectCue(cue) {
@@ -215,7 +267,7 @@ export default function App() {
       else undo();
     } else if (event.key === ' ' && !event.target.closest('button')) {
       event.preventDefault();
-      playback.toggle();
+      if (media?.status !== 'loading') playback.toggle();
     } else if (event.key === 'Delete' && selected) {
       event.preventDefault();
       removeCue();
@@ -245,7 +297,23 @@ export default function App() {
           </div>
         </div>
         <div className="workbench">
-          <Stage sheet={sheet} playback={playback} duration={duration} media={media} mediaRef={mediaRef} onMedia={() => inputMedia.current.click()} onMetadata={handleMetadata} onMediaError={handleMediaError} />
+          <Stage
+            sheet={sheet}
+            playback={playback}
+            duration={duration}
+            media={media}
+            mediaRef={mediaRef}
+            onMedia={() => inputMedia.current.click()}
+            onLink={loadMedia}
+            onRemoveMedia={removeMedia}
+            onMetadata={handleMetadata}
+            onMediaError={handleMediaError}
+            onEmbeddedReady={handleEmbeddedReady}
+            onDuration={handleDuration}
+            onEmbeddedError={handleReferenceError}
+            onEmbeddedBlocked={() => message.info('可用 YouTube 视频内的播放键开始播放。')}
+            onLocate={locateBilibiliTime}
+          />
           <Inspector
             cue={selected}
             sheet={sheet}
@@ -268,7 +336,7 @@ export default function App() {
           onSeek={(seconds) => { setSelectedId(null); playback.seek(seconds); }}
         />
         <footer className="workspace-footer">
-          <span>素材仅在本机处理</span>
+          <span>本地文件仅在浏览器读取</span>
           <span className="shortcuts"><kbd>空格</kbd> 播放 / 暂停 <kbd>Del</kbd> 删除灯效</span>
         </footer>
       </main>

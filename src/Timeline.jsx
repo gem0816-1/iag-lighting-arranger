@@ -19,8 +19,11 @@ function Ruler({ duration, zoom }) {
 }
 
 function Waveform({ duration, media, peaks }) {
-  if (!media) return <span className="lane-hint">导入音频或视频后显示波形</span>;
-  if (!peaks) return <span className="lane-hint">{media.status === 'loading' ? '正在读取媒体…' : '可跟随媒体播放'}</span>;
+  if (!media || media.status === 'error') return <span className="lane-hint">选择本地素材或导入视频网址</span>;
+  if (!peaks) {
+    const hint = media.kind === 'bilibili' ? 'B 站视频 · 手动对齐时间轴' : '可跟随媒体播放';
+    return <span className="lane-hint">{media.status === 'loading' ? '正在读取媒体…' : hint}</span>;
+  }
   const path = peaks.map((peak, index) => `M${index + 0.5},${28 - peak * 25}v${Math.max(1, peak * 50)}`).join('');
   const width = `${100 * media.seconds / duration}%`;
   return (

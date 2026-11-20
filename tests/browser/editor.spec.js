@@ -31,6 +31,12 @@ async function downloadCue(page) {
   return download;
 }
 
+async function loadReference(page, url) {
+  await page.getByRole('button', { name: '导入网址', exact: true }).click();
+  await page.getByLabel('视频网址', { exact: true }).fill(url);
+  await page.getByRole('button', { name: '载入视频', exact: true }).click();
+}
+
 test('opens from a Pages subdirectory and creates a cue in sync with local WAV', async ({ page }, testInfo) => {
   const errors = [];
   const requests = [];
@@ -130,4 +136,107 @@ test('keeps all editing controls within a narrow viewport', async ({ page }, tes
   expect(viewport.width).toBe(viewport.inner);
   await expect(page.getByRole('button', { name: '导出给 IAG' })).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath('mobile.png'), fullPage: true });
+});
+
+test('plays and seeks direct HTTPS media and leaves its URL out of the IAG file', async ({ page }) => {
+  const source = 'https://media.example.test/clip.wav?sig=fixture';
+  const { buffer } = referenceAudio();
+  await page.route(source, async (route) => {
+    const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range ?? '');
+    const headers = { 'content-type': 'audio/wav', 'accept-ranges': 'bytes' };
+    if (!range) return route.fulfill({ body: buffer, headers });
+    const start = Number(range[1]);
+    const end = range[2] ? Math.min(Number(range[2]), buffer.length - 1) : buffer.length - 1;
+    headers['content-range'] = `bytes ${start}-${end}/${buffer.length}`;
+    await route.fulfill({ status: 206, body: buffer.subarray(start, end + 1), headers });
+  });
+  await page.goto('./');
+  await loadReference(page, source);
+
+  const play = page.getByRole('button', { name: '播放', exact: true });
+  await play.click();
+  await expect.poll(() => page.locator('audio').evaluate((media) => media.currentTime)).toBeGreaterThan(0.06);
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  const ruler = page.locator('.ruler');
+  const { width } = await ruler.boundingBox();
+  await ruler.click({ position: { x: width / 2, y: 10 } });
+  await expect.poll(() => page.locator('audio').evaluate((media) => media.currentTime)).toBeCloseTo(3, 1);
+  await page.getByRole('button', { name: '添加灯效' }).click();
+  const downloaded = await downloadCue(page);
+  const json = await readFile(await downloaded.path(), 'utf8');
+  expect(JSON.parse(json).cues[0].start_frame).toBe(90);
+  expect(json).not.toContain('media.example.test');
+  await page.getByRole('button', { name: '移除参考媒体' }).click();
+  await expect(page.locator('audio')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '导出给 IAG' })).toBeEnabled();
+});
+
+test('embeds Bilibili and locates the editor at the time entered from the video', async ({ page }) => {
+  await page.route('https://player.bilibili.com/player.html?*', (route) => route.fulfill({ body: 'Bilibili frame fixture', contentType: 'text/html' }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await loadReference(page, 'https://www.bilibili.com/video/BV1B7411m7LV/?p=2');
+  const frame = page.locator('iframe[title="B 站参考视频"]');
+  await expect(frame).toHaveAttribute('src', 'https://player.bilibili.com/player.html?bvid=BV1B7411m7LV&p=2&poster=1&autoplay=0&danmaku=0');
+  const time = page.getByLabel('B 站视频进度', { exact: true });
+  await time.fill('1:60');
+  await time.press('Enter');
+  await expect(page.getByRole('alert')).toContainText('请输入秒数或视频时间');
+  await time.fill('1:15.5');
+  await page.getByRole('button', { name: '定位时间轴', exact: true }).click();
+  await expect(page.getByLabel('播放位置')).toContainText('01:15.500');
+  await page.getByRole('button', { name: '添加灯效' }).click();
+  await expect(page.getByLabel('开始（秒）')).toHaveValue('75.5');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+
+test('uses the YouTube clock when duration arrives after play and handles blocked videos', async ({ page }) => {
+  await page.route('https://www.youtube.com/embed/**', (route) => route.fulfill({ body: 'YouTube frame fixture', contentType: 'text/html' }));
+  await page.addInitScript(() => {
+    class FakePlayer {
+      constructor(frame, { events }) {
+        this.frame = frame;
+        this.events = events;
+        this.duration = 0;
+        this.position = 0;
+        this.state = -1;
+        window.testYouTubePlayer = this;
+        queueMicrotask(() => events.onReady({ target: this }));
+      }
+      getDuration() { return this.duration; }
+      getPlayerState() { return this.state; }
+      getCurrentTime() { return this.state === 1 ? this.position + (performance.now() - this.started) / 1000 : this.position; }
+      seekTo(seconds) { this.position = seconds; this.started = performance.now(); }
+      cueVideoById({ startSeconds }) { this.seekTo(startSeconds); this.state = 5; }
+      playVideo() {
+        this.started = performance.now();
+        this.duration = 126;
+        this.state = 1;
+        queueMicrotask(() => this.events.onStateChange({ data: 1 }));
+      }
+      pauseVideo() {
+        if (this.state !== 1) return;
+        this.position = this.getCurrentTime();
+        this.state = 2;
+        queueMicrotask(() => this.events.onStateChange({ data: 2 }));
+      }
+      destroy() { this.frame.remove(); }
+    }
+    window.YT = { Player: FakePlayer };
+  });
+
+  await page.goto('./');
+  await loadReference(page, 'https://youtu.be/M7lc1UVf-VE');
+  await page.getByRole('button', { name: '播放', exact: true }).click();
+  await expect(page.getByLabel('播放位置')).toContainText('/ 02:06.000');
+  await expect.poll(() => page.evaluate(() => window.testYouTubePlayer.getCurrentTime())).toBeGreaterThan(0.05);
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  const ruler = page.locator('.ruler');
+  const { width } = await ruler.boundingBox();
+  await ruler.click({ position: { x: width / 2, y: 10 } });
+  await expect.poll(() => page.evaluate(() => window.testYouTubePlayer.getCurrentTime())).toBeCloseTo(63, 1);
+
+  await page.evaluate(() => window.testYouTubePlayer.events.onError({ data: 101 }));
+  await expect(page.getByText('这条 YouTube 视频限制了站外播放。请换一条允许嵌入的视频。')).toBeVisible();
+  await expect(page.getByRole('link', { name: '打开原视频' })).toHaveAttribute('href', 'https://www.youtube.com/watch?v=M7lc1UVf-VE');
 });
