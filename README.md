@@ -26,6 +26,13 @@
 
 [DaVinci Resolve 编辑指南](https://documents.blackmagicdesign.com/UserManuals/DaVinciResolveEditorsGuide.pdf) · [Premiere Pro 快捷键](https://helpx.adobe.com/premiere/desktop/get-started/keyboard-shortcuts/default-keyboard-shortcuts.html) · [Final Cut Pro 快捷键](https://support.apple.com/guide/final-cut-pro/ver90ba5929/mac)
 
+## 实体灯棒监看
+
+用支持网页蓝牙的 Chrome 或 Edge 打开 HTTPS 网页。打开电脑蓝牙并给灯棒开机，点击预览下方的「连接灯棒」，在浏览器列表选中 `EMB_` 开头的荧光棒。若灯棒已连到手机，先在手机 App 内断开。[浏览器蓝牙支持](https://developer.mozilla.org/zh-CN/docs/Web/API/Web_Bluetooth_API)
+
+- 播放时灯棒跟随灯效。暂停时显示播放头位置的静态颜色，可以拖动定位或编辑颜色后立即查看。切出该标签页、播放到黑场和主动断开时会发送黑色。
+- 呼吸和闪烁由灯棒执行原有灯效。渐变在同一灯效内按 100 毫秒间隔更新，网页画面继续以 60 fps 预览。灯棒连接和控制在本机完成。
+
 ## 在线视频
 
 - 可直接播放的 HTTPS 视频直链（如 MP4、WebM）和允许嵌入的 YouTube 视频可跟随编排时间轴播放。视频是否可访问由源网站和浏览器决定。[YouTube 官方播放器接口](https://developers.google.com/youtube/iframe_api_reference)
@@ -34,8 +41,8 @@
 
 ### B 站自动同步（桌面 Chrome／Edge／Firefox）
 
-1. 点击「下载同步扩展」，网页会按浏览器打开相应的安装指引。浏览器地址栏用于打开扩展管理页。
-2. Chrome 和 Edge 下载 ZIP 后解压，在扩展管理页开启「开发者模式」，加载解压目录。Firefox 下载 XPI，在 `about:debugging#/runtime/this-firefox` 选择「临时载入附加组件」。Firefox 重启后需重新加载，永久安装需 Mozilla 签名。[Chrome 安装说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked) · [Edge 安装说明](https://learn.microsoft.com/microsoft-edge/extensions-chromium/getting-started/extension-sideloading) · [Firefox 安装说明](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Your_first_WebExtension#trying_it_out)
+1. 点击「下载同步扩展」。Chrome 和 Edge 的网页安装指引提供 ZIP 和对应的扩展管理地址。Firefox 的扩展上架后可直接打开 Mozilla 安装页。
+2. Chrome 和 Edge 下载 ZIP 后解压，在扩展管理页开启「开发者模式」，加载解压目录。Mozilla 安装页使用「添加到 Firefox」，重启后扩展继续可用。上架前的 Firefox 临时版可在 `about:debugging#/runtime/this-firefox` 载入 XPI。[Chrome 安装说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked) · [Edge 安装说明](https://learn.microsoft.com/microsoft-edge/extensions-chromium/getting-started/extension-sideloading) · [Firefox 临时安装说明](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Your_first_WebExtension#trying_it_out)
 3. 刷新编排页，导入 B 站链接。在内嵌视频点播放，等到显示「B 站已自动同步」。在视频里播放、暂停、拖动进度，时间轴会跟随。也可用编排页的播放按钮及时间轴控制视频。
 
 扩展只在编排页嵌入的 B 站播放器中交换播放状态、时间和时长。手动方式仍在视频下方，输入 `1:15` 等时间即可定位。
@@ -58,6 +65,8 @@ npm run preview
 ## GitHub Pages
 
 将这个独立目录作为专用仓库的根目录。在仓库 `Settings → Pages` 将发布来源选为 `GitHub Actions`，随后运行 `Build and deploy GitHub Pages`。工作流只上传 `dist`，页面支持 `/<仓库名>/` 路径。部署地址会显示在工作流的 `github-pages` 环境中。[GitHub Pages 官方说明](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+
+Mozilla 发布签名版后，将官方扩展详情页设为仓库 Actions 变量 `FIREFOX_AMO_URL`。下一次构建会让 Firefox 的下载入口直接跳转到该页。[Mozilla 上架流程](https://extensionworkshop.com/documentation/publish/submitting-an-add-on/)
 
 构建产物包含第三方依赖的 `THIRD_PARTY_NOTICES.md`。
 

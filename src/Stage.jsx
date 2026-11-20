@@ -5,6 +5,7 @@ import { cueAt, formatTime, MODES, sampleColor } from './cue-sheet.js';
 import { BilibiliPosition, ReferenceLinkButton } from './ReferenceMedia.jsx';
 import YouTubePlayer from './YouTubePlayer.jsx';
 import BilibiliPlayer from './BilibiliPlayer.jsx';
+import StickMonitor from './StickMonitor.jsx';
 
 function LightPreview({ sheet, clock, playing }) {
   const stage = useRef(null);
@@ -148,6 +149,7 @@ export default function Stage({
         <Button type="text" icon={<StepBackwardOutlined />} onClick={() => playback.seek(0)} aria-label="回到起点" title="回到起点" />
         <TimeReadout clock={playback.clock} duration={duration} />
       </div>
+      <StickMonitor sheet={sheet} clock={playback.clock} playing={playback.playing} />
       <div className="media-caption">
         <span title={media?.label}>
           {media?.status === 'loading' && '正在读取 · '}

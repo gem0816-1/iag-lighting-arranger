@@ -82,6 +82,7 @@ h1, h2, p { margin: 0; }
 .status-light { width: 8px; height: 8px; border-radius: 50%; background: var(--base-color); outline: 1px solid #738893; }
 .stage-status code { color: var(--muted); font: 11px var(--mono); }
 .playback-bar { margin: 10px 13px 0; display: flex; align-items: center; gap: 6px; }
+.stick-monitor { margin: 9px 14px 5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 9px; color: var(--muted); font-size: 12px; }
 .play-button { min-width: 80px; }
 .time-readout { margin-left: auto; color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
 .time-readout strong { color: #eef7f3; font-size: 13px; }
