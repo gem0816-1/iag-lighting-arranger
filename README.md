@@ -11,8 +11,16 @@
 ## 在线视频
 
 - 可直接播放的 HTTPS 视频直链（如 MP4、WebM）和允许嵌入的 YouTube 视频可跟随编排时间轴播放。视频是否可访问由源网站和浏览器决定。[YouTube 官方播放器接口](https://developers.google.com/youtube/iframe_api_reference)
-- B 站支持包含 BV 号或 av 号的完整视频地址。在内嵌视频里暂停，把画面上的时间填进「视频时间」并点「定位时间轴」。例如 `1:15` 会将编辑位置移动到 75 秒。`b23.tv` 短链接可以先打开，再复制地址栏展开的网址。[B 站外链播放器说明](https://player.bilibili.com/)
+- B 站支持包含 BV 号或 av 号的完整视频地址。`b23.tv` 短链接可以先打开，再复制地址栏展开的网址。[B 站外链播放器说明](https://player.bilibili.com/)
 - 本地文件在浏览器内处理。导入网址时浏览器向对应源网站取视频，下载的 IAG 文件只含灯效和时间轴。
+
+### B 站自动同步（桌面 Chrome／Edge）
+
+1. [下载 IAG B 站同步扩展](https://gem0816-1.github.io/iag-lighting-arranger/iag-bilibili-sync.zip)并解压到一个保留的目录。
+2. 打开 `chrome://extensions/` 或 `edge://extensions/`，开启「开发者模式」，点「加载已解压的扩展程序」，选择包含 `manifest.json` 的目录。[Chrome 安装说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked) · [Edge 安装说明](https://learn.microsoft.com/microsoft-edge/extensions-chromium/getting-started/extension-sideloading)
+3. 刷新编排页，导入 B 站链接。在内嵌视频点播放，等到显示「B 站已自动同步」。此后在视频里播放、暂停、拖动进度，时间轴会跟随。也可用编排页的播放按钮及时间轴控制视频。
+
+扩展只在编排页嵌入的 B 站播放器中交换播放状态、时间和时长。手动方式仍在视频下方，输入 `1:15` 等时间即可定位。
 
 网页导出灯效工程。素材、指纹对齐与实体灯棒控制另由原有工具和手机 App 处理。可预览的媒体格式由浏览器决定。超过 24 MB 或 20 分钟的媒体仍可播放，波形略过。呼吸与闪烁画面是屏幕模拟，超出已有参数标定范围时显示静态颜色。iaglight 和 RRNN 可继续在手机 App 中导入。
 

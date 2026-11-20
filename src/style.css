@@ -58,6 +58,7 @@ h1, h2, p { margin: 0; }
 .bilibili-position form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .bilibili-position input { width: 150px; }
 .bilibili-position .reference-help { margin: 5px 0 0; }
+.bilibili-sync-status { margin: 9px 13px 0; color: var(--mint); font-size: 12px; }
 .bilibili-position a, .media-caption a { color: var(--mint); }
 .light-preview { flex: 1; min-width: 0; min-height: 208px; position: relative; overflow: hidden; isolation: isolate; background: radial-gradient(ellipse 95% 72% at 50% 60%, color-mix(in srgb, var(--base-color) 11%, #14232f), #0d1721 78%); }
 .stage-grid { position: absolute; inset: 0; background: linear-gradient(#7ca4bb0a 1px, transparent 1px), linear-gradient(90deg, #7ca4bb0a 1px, transparent 1px); background-size: 24px 24px; mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); }

@@ -151,16 +151,17 @@ export default function App() {
   }
 
   function handleDuration(id, seconds) {
-    if (media?.id !== id || media.seconds || media.status === 'error') return;
+    if (media?.id !== id || media.status === 'error' || media.seconds === seconds || (media.seconds && media.kind !== 'bilibili')) return duration;
     if (!Number.isFinite(seconds) || seconds <= 0) {
       handleReferenceError(id, '请输入有固定时长、可以回看的视频。');
-      return;
+      return duration;
     }
     setMedia((current) => current?.id === id ? { ...current, status: 'ready', seconds } : current);
-    if (!sheet.cues.length && seconds <= 86_400) {
+    let limit = duration;
+    if (seconds <= 86_400 && (!sheet.cues.length || (media.kind === 'bilibili' && seconds > duration))) {
       const next = resizeSheet(sheet, Math.max(secondsAt(1, sheet.fps), seconds));
       commit(next);
-      const limit = secondsAt(next.duration_frames, next.fps);
+      limit = secondsAt(next.duration_frames, next.fps);
       if (playback.clock.read() > limit) playback.seek(limit, limit);
     }
     if (media.file) {
@@ -168,6 +169,7 @@ export default function App() {
         setMedia((current) => current?.id === id ? { ...current, peaks } : current);
       }).catch(() => {});
     }
+    return limit;
   }
 
   function handleMetadata(event) {
@@ -181,6 +183,10 @@ export default function App() {
 
   function handleEmbeddedReady(id) {
     setMedia((current) => current?.id === id && current.status !== 'error' ? { ...current, status: 'ready' } : current);
+  }
+
+  function handleBilibiliSync(id, sync) {
+    setMedia((current) => current?.id === id && current.sync !== sync ? { ...current, sync } : current);
   }
 
   function handleReferenceError(id, text) {
@@ -310,6 +316,7 @@ export default function App() {
             onMediaError={handleMediaError}
             onEmbeddedReady={handleEmbeddedReady}
             onDuration={handleDuration}
+            onBilibiliSync={handleBilibiliSync}
             onEmbeddedError={handleReferenceError}
             onEmbeddedBlocked={() => message.info('可用 YouTube 视频内的播放键开始播放。')}
             onLocate={locateBilibiliTime}

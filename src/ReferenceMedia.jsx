@@ -28,7 +28,7 @@ export function ReferenceLinkButton({ onLink }) {
     <>
       <Button icon={<LinkOutlined aria-hidden="true" />} onClick={open}>导入网址</Button>
       <Modal title="导入网络视频" open={visible} onCancel={() => setVisible(false)} onOk={submit} okText="载入视频" cancelText="取消" afterOpenChange={(open) => { if (open) input.current?.focus(); }}>
-        <p className="reference-help" id="reference-link-help">支持视频文件直链、允许嵌入的 YouTube 视频和 B 站视频页。B 站可照着画面进度手动定位。</p>
+        <p className="reference-help" id="reference-link-help">支持视频文件直链、允许嵌入的 YouTube 视频和 B 站视频页。B 站可搭配桌面浏览器扩展自动同步。</p>
         <Input
           ref={input}
           aria-label="视频网址"
@@ -47,7 +47,7 @@ export function ReferenceLinkButton({ onLink }) {
   );
 }
 
-export function BilibiliPosition({ url, onLocate }) {
+export function BilibiliPosition({ url, onLocate, waiting }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
 
@@ -75,7 +75,11 @@ export function BilibiliPosition({ url, onLocate }) {
         <Button htmlType="submit">定位时间轴</Button>
       </form>
       {error && <p className="reference-error" role="alert">{error}</p>}
-      <p className="reference-help">用视频内的按钮播放。暂停后输入画面上的进度，就能定位并添加灯效。 <a href={url} target="_blank" rel="noreferrer">到 B 站观看</a></p>
+      <p className="reference-help">
+        {waiting ? '扩展已连接。请在视频内点播放，载入后自动同步。' : '桌面 Chrome／Edge 可安装扩展自动同步。'}{' '}
+        {!waiting && <a href={`${import.meta.env.BASE_URL}iag-bilibili-sync.zip`} download>下载同步扩展</a>}{' '}
+        <a href={url} target="_blank" rel="noreferrer">到 B 站观看</a>
+      </p>
     </div>
   );
 }

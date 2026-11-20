@@ -43,7 +43,7 @@ export function usePlayback(duration, mediaRef, onError) {
     media.play().catch((error) => {
       if (id === request.current && mediaRef.current === media && error.name !== 'AbortError') {
         pause();
-        onError('浏览器无法开始播放这段媒体。');
+        onError(error.name === 'NotAllowedError' ? '请先在视频内点播放，浏览器会允许后续控制。' : '浏览器无法开始播放这段媒体。');
       }
     });
   }
@@ -79,13 +79,17 @@ export function usePlayback(duration, mediaRef, onError) {
     setPlaying(true);
   }
 
-  function syncMedia(state, seconds) {
+  function syncMedia(state, seconds, limit = duration) {
     if (!Number.isFinite(seconds)) return;
     const media = mediaRef.current;
-    if (state === 'paused' && media && clock.read() > mediaEnd(media)) return;
-    clock.write(Math.max(0, Math.min(duration, seconds)));
-    if (seconds >= duration) pause();
-    else if (state !== 'ended') setPlaying(state === 'playing');
+    if (state === 'paused' && media && clock.read() > mediaEnd(media) && seconds >= mediaEnd(media)) return;
+    clock.write(Math.max(0, Math.min(limit, seconds)));
+    if (seconds >= limit) {
+      if (state === 'playing') pause();
+      else setPlaying(false);
+    } else if (state !== 'ended') {
+      setPlaying(state === 'playing');
+    }
   }
 
   useEffect(() => {

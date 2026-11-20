@@ -4,6 +4,7 @@ import { cueAt, formatTime, MODES, sampleColor } from './cue-sheet.js';
 import { useTime } from './playback.js';
 import { BilibiliPosition, ReferenceLinkButton } from './ReferenceMedia.jsx';
 import YouTubePlayer from './YouTubePlayer.jsx';
+import BilibiliPlayer from './BilibiliPlayer.jsx';
 
 function LightPreview({ sheet, clock, playing }) {
   const time = useTime(clock);
@@ -34,11 +35,12 @@ function TimeReadout({ clock, duration }) {
 
 export default function Stage({
   sheet, playback, duration, media, mediaRef, onMedia, onLink, onRemoveMedia, onMetadata, onMediaError,
-  onEmbeddedReady, onDuration, onEmbeddedError, onEmbeddedBlocked, onLocate,
+  onEmbeddedReady, onDuration, onBilibiliSync, onEmbeddedError, onEmbeddedBlocked, onLocate,
 }) {
   const available = media && media.status !== 'error';
   const youtube = available && media.kind === 'youtube';
   const bilibili = available && media.kind === 'bilibili';
+  const synced = bilibili && media.sync === 'ready';
   const nativeVideo = available && media.kind === 'video';
   const nativeAudio = available && media.kind === 'audio';
   const embedded = youtube || bilibili;
@@ -63,9 +65,14 @@ export default function Stage({
         {nativeVideo && <video key={media.id} {...mediaProps} playsInline aria-label="参考视频" />}
         {nativeAudio && <audio key={media.id} {...mediaProps} />}
         {bilibili && (
-          <div className="reference-player" key={media.id}>
-            <iframe src={media.embedUrl} title="B 站参考视频" allow="fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
-          </div>
+          <BilibiliPlayer
+            key={media.id}
+            src={media.embedUrl}
+            mediaRef={mediaRef}
+            onStatus={(status) => onBilibiliSync(media.id, status)}
+            onDuration={(seconds) => onDuration(media.id, seconds)}
+            onPlayback={playback.syncMedia}
+          />
         )}
         {youtube && (
           <YouTubePlayer
@@ -81,7 +88,9 @@ export default function Stage({
         )}
         <LightPreview sheet={sheet} clock={playback.clock} playing={playback.playing} />
       </div>
-      {bilibili && <BilibiliPosition key={media.id} url={media.url} onLocate={onLocate} />}
+      {bilibili && (synced
+        ? <p className="bilibili-sync-status" role="status">B 站已自动同步</p>
+        : <BilibiliPosition key={media.id} url={media.url} onLocate={onLocate} waiting={media.sync === 'waiting'} />)}
       <div className="playback-bar">
         <Button
           className="play-button"
@@ -89,7 +98,7 @@ export default function Stage({
           icon={playback.playing ? <PauseOutlined aria-hidden="true" /> : <CaretRightOutlined aria-hidden="true" />}
           onClick={playback.toggle}
           disabled={media?.status === 'loading'}
-        >{bilibili ? `${playLabel}灯效` : playLabel}</Button>
+        >{bilibili && !synced ? `${playLabel}灯效` : playLabel}</Button>
         <Button type="text" icon={<StepBackwardOutlined />} onClick={() => playback.seek(0)} aria-label="回到起点" title="回到起点" />
         <TimeReadout clock={playback.clock} duration={duration} />
       </div>

@@ -190,6 +190,57 @@ test('embeds Bilibili and locates the editor at the time entered from the video'
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 
+test('follows the Bilibili bridge in both directions and retains existing cues', async ({ page }) => {
+  const frameCode = `
+    window.addEventListener('message', (event) => {
+      if (event.data?.type !== 'iag-bilibili-sync-v1') return;
+      const [port] = event.ports;
+      let state = { type: 'state', duration: 120, time: 0, paused: true, ended: false, running: false, rate: 1, command: 0 };
+      window.reportVideo = (fields) => { state = { ...state, ...fields }; port.postMessage(state); };
+      window.receivedCommands = [];
+      port.onmessage = ({ data }) => {
+        window.receivedCommands.push(data.type);
+        if (data.type === 'disconnect') return;
+        if (data.type === 'seek') window.reportVideo({ time: data.time, command: data.id });
+        if (data.type === 'play') window.reportVideo({ paused: false, running: true, command: data.id });
+        if (data.type === 'pause') window.reportVideo({ paused: true, running: false, command: data.id });
+        port.postMessage({ type: 'result', id: data.id, ok: true });
+      };
+      port.postMessage({ type: 'connected' });
+      window.reportVideo({});
+    });
+  `;
+  await page.route('https://player.bilibili.com/player.html?*', (route) => route.fulfill({
+    body: `<body><script>${frameCode}</script></body>`,
+    contentType: 'text/html',
+  }));
+  await page.goto('./');
+  await page.getByRole('button', { name: '添加灯效', exact: true }).click();
+  await loadReference(page, 'https://www.bilibili.com/video/BV1GJ411x7h7/');
+  await expect(page.getByText('B 站已自动同步')).toBeVisible();
+  await expect(page.getByLabel('播放位置')).toContainText('/ 02:00.000');
+  await expect(page.locator('.cue-block')).toHaveCount(1);
+  await expect(page.getByLabel('B 站视频进度', { exact: true })).toHaveCount(0);
+
+  const frameBody = page.frameLocator('iframe[title="B 站参考视频"]').locator('body');
+  await frameBody.evaluate(() => window.reportVideo({ time: 11, paused: false, running: true }));
+  await expect(page.getByRole('button', { name: '暂停', exact: true })).toBeVisible();
+  await expect(page.getByLabel('播放位置')).toContainText('00:11.');
+  await frameBody.evaluate(() => window.reportVideo({ time: 12.5, paused: true, running: false }));
+  await expect(page.getByRole('button', { name: '播放', exact: true })).toBeVisible();
+  await expect(page.getByLabel('播放位置')).toContainText('00:12.500');
+  await frameBody.evaluate(() => window.reportVideo({ time: 20 }));
+  await expect(page.getByLabel('播放位置')).toContainText('00:20.000');
+
+  const ruler = page.locator('.ruler');
+  const box = await ruler.boundingBox();
+  await ruler.click({ position: { x: box.width / 2, y: 10 } });
+  await page.getByRole('button', { name: '播放', exact: true }).click();
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  await expect.poll(() => frameBody.evaluate(() => window.receivedCommands)).toEqual(['seek', 'play', 'pause']);
+  await expect(page.getByLabel('播放位置')).toContainText('01:00.000');
+});
+
 test('uses the YouTube clock when duration arrives after play and handles blocked videos', async ({ page }) => {
   await page.route('https://www.youtube.com/embed/**', (route) => route.fulfill({ body: 'YouTube frame fixture', contentType: 'text/html' }));
   await page.addInitScript(() => {
