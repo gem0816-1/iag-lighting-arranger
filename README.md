@@ -6,7 +6,25 @@
 2. 播放或点击时间轴定位，再点「添加灯效」。拖动灯效可移动，选中后可改开始和结束时间、颜色、亮度及效果。
 3. 点「导出给 IAG」，把 `.iagcue.json` 传到手机，在 IAG App 的「编排」页导入。
 
-时间轴沿用 Resolve Cue v1 的单轨与帧精度。留白是黑场，灯效之间可以相接。工程草稿存于当前浏览器，重新打开草稿后可再选素材或粘贴网址。空工程载入有时长的媒体后会调整时间轴，已有灯效的工程可在设置中调整总时长。
+时间轴沿用 Resolve Cue v1 的单轨。新工程默认 60 fps，旧工程保留导入时的帧率。灯效预览以 60 fps 为目标，实际画面刷新随设备和浏览器变化。留白是黑场，工程草稿存于当前浏览器。重开草稿后可再选素材或粘贴网址。
+
+## 时间轴编辑
+
+- 「选择」模式拖灯效块中间可移动，重叠部分会被覆盖。拖左右边缘可修剪，修剪停在相邻灯效边界。
+- 「波纹修剪」模式拖边缘，后面的灯效随时长变化移动。「刀片」模式点击灯效块即可分割。吸附开启时，移动和修剪靠近编辑点或播放头会对齐。编辑可撤销。
+- 右上角选择快捷键套组，也可按 `Alt+Shift+1/2/3` 快速切换。表格里的 `Ctrl/Cmd` 在 Windows 用 `Ctrl`，在 macOS 用 `Command`。
+
+| 动作 | DaVinci Resolve | Premiere Pro | Final Cut Pro |
+|---|---|---|---|
+| 选择 / 波纹修剪 / 刀片 | `A` / `T` / `B` | `V` / `B` / `C` | `A` / `T` / `B` |
+| 吸附 | `N` | `S` | `N` |
+| 播放头处分割 | `Ctrl/Cmd+B` | `Ctrl/Cmd+K` | `Ctrl/Cmd+B` |
+| 删除并留空 | `Backspace` | `Delete` | `Shift+Backspace` |
+| 波纹删除 | `Delete` | `Shift+Delete` | `Backspace` |
+
+空格播放或暂停，`J` 倒放灯效预览，`K` 暂停，`L` 正向播放。`J` 倒放时参考视频或音频保持暂停，停下时定位到播放头。左右方向键逐帧，上下方向键跳到相邻编辑点，`Enter` 选中播放头下的灯效。输入框可照常打字。可在工具栏切换工具并使用刀片完成分割。
+
+[DaVinci Resolve 编辑指南](https://documents.blackmagicdesign.com/UserManuals/DaVinciResolveEditorsGuide.pdf) · [Premiere Pro 快捷键](https://helpx.adobe.com/premiere/desktop/get-started/keyboard-shortcuts/default-keyboard-shortcuts.html) · [Final Cut Pro 快捷键](https://support.apple.com/guide/final-cut-pro/ver90ba5929/mac)
 
 ## 在线视频
 
@@ -14,11 +32,11 @@
 - B 站支持包含 BV 号或 av 号的完整视频地址。`b23.tv` 短链接可以先打开，再复制地址栏展开的网址。[B 站外链播放器说明](https://player.bilibili.com/)
 - 本地文件在浏览器内处理。导入网址时浏览器向对应源网站取视频，下载的 IAG 文件只含灯效和时间轴。
 
-### B 站自动同步（桌面 Chrome／Edge）
+### B 站自动同步（桌面 Chrome／Edge／Firefox）
 
-1. [下载 IAG B 站同步扩展](https://gem0816-1.github.io/iag-lighting-arranger/iag-bilibili-sync.zip)并解压到一个保留的目录。
-2. 打开 `chrome://extensions/` 或 `edge://extensions/`，开启「开发者模式」，点「加载已解压的扩展程序」，选择包含 `manifest.json` 的目录。[Chrome 安装说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked) · [Edge 安装说明](https://learn.microsoft.com/microsoft-edge/extensions-chromium/getting-started/extension-sideloading)
-3. 刷新编排页，导入 B 站链接。在内嵌视频点播放，等到显示「B 站已自动同步」。此后在视频里播放、暂停、拖动进度，时间轴会跟随。也可用编排页的播放按钮及时间轴控制视频。
+1. 点击「下载同步扩展」，网页会按浏览器打开相应的安装指引。浏览器地址栏用于打开扩展管理页。
+2. Chrome 和 Edge 下载 ZIP 后解压，在扩展管理页开启「开发者模式」，加载解压目录。Firefox 下载 XPI，在 `about:debugging#/runtime/this-firefox` 选择「临时载入附加组件」。Firefox 重启后需重新加载，永久安装需 Mozilla 签名。[Chrome 安装说明](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked) · [Edge 安装说明](https://learn.microsoft.com/microsoft-edge/extensions-chromium/getting-started/extension-sideloading) · [Firefox 安装说明](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Your_first_WebExtension#trying_it_out)
+3. 刷新编排页，导入 B 站链接。在内嵌视频点播放，等到显示「B 站已自动同步」。在视频里播放、暂停、拖动进度，时间轴会跟随。也可用编排页的播放按钮及时间轴控制视频。
 
 扩展只在编排页嵌入的 B 站播放器中交换播放状态、时间和时长。手动方式仍在视频下方，输入 `1:15` 等时间即可定位。
 
@@ -31,6 +49,7 @@
 ```powershell
 npm ci
 npm run build
+python scripts/package-extensions.py
 npm run preview
 ```
 

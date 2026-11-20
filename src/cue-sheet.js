@@ -9,6 +9,7 @@ export const MODES = {
 };
 
 export const DEFAULT_COLOR = '#67E6B1';
+export const PREVIEW_FPS = 60;
 const SPEEDS = { breathing: 5, flash: 6, fast_flash: 6, slow_flash: 20 };
 const MAX_CUES = 50_000;
 const MAX_SECONDS = 86_400;
@@ -19,11 +20,11 @@ let cueId = 0;
 export function makeSheet(name = '未命名编排', seconds = 30) {
   return {
     version: 1,
-    fps: { numerator: 30, denominator: 1 },
+    fps: { numerator: PREVIEW_FPS, denominator: 1 },
     start_frame: 0,
     timecode_start: '00:00:00:00',
     timeline_name: name,
-    duration_frames: Math.round(seconds * 30),
+    duration_frames: Math.round(seconds * PREVIEW_FPS),
     cues: [],
   };
 }
@@ -188,6 +189,79 @@ export function updateCue(sheet, id, patch) {
   return { ...sheet, cues };
 }
 
+function sliceCue(cue, start_frame, end_frame, fps) {
+  if (cue.mode !== 'gradient') return { ...cue, start_frame, end_frame };
+  const source = { ...cue, brightness: 100 };
+  return {
+    ...cue, start_frame, end_frame,
+    color: sampleColor(source, start_frame, fps, false),
+    end_color: sampleColor(source, end_frame, fps, false),
+  };
+}
+
+function editSheet(sheet, cues) {
+  if (cues.length > MAX_CUES) throw new Error('最多可放置 50,000 个灯效。');
+  cues.sort((first, second) => first.start_frame - second.start_frame);
+  assertNonOverlapping(cues);
+  return { ...sheet, cues };
+}
+
+export function splitCue(sheet, cue, frame) {
+  const index = sheet.cues.indexOf(cue);
+  if (index < 0 || !Number.isSafeInteger(frame) || frame <= cue.start_frame || frame >= cue.end_frame) return sheet;
+  const first = sliceCue(cue, cue.start_frame, frame, sheet.fps);
+  const second = { ...sliceCue(cue, frame, cue.end_frame, sheet.fps), id: ++cueId };
+  const cues = sheet.cues.slice();
+  cues.splice(index, 1, first, second);
+  return editSheet(sheet, cues);
+}
+
+export function moveCueOverwrite(sheet, cue, start) {
+  if (start === cue.start_frame) return sheet;
+  const end = start + cue.end_frame - cue.start_frame;
+  integer(start, 0, sheet.duration_frames - 1, '灯效起点');
+  integer(end, start + 1, sheet.duration_frames, '灯效终点');
+  const cues = [{ ...cue, start_frame: start, end_frame: end }];
+  for (const other of sheet.cues) {
+    if (other.id === cue.id) continue;
+    if (other.end_frame <= start || other.start_frame >= end) {
+      cues.push(other);
+      continue;
+    }
+    if (other.start_frame < start) cues.push(sliceCue(other, other.start_frame, start, sheet.fps));
+    if (other.end_frame > end) {
+      const tail = sliceCue(other, end, other.end_frame, sheet.fps);
+      if (other.start_frame < start) tail.id = ++cueId;
+      cues.push(tail);
+    }
+  }
+  return editSheet(sheet, cues);
+}
+
+export function trimCue(sheet, cue, start, end, ripple = false) {
+  if (start === cue.start_frame && end === cue.end_frame) return sheet;
+  integer(start, 0, sheet.duration_frames - 1, '灯效起点');
+  integer(end, start + 1, sheet.duration_frames, '灯效终点');
+  const change = end - start - (cue.end_frame - cue.start_frame);
+  return editSheet(sheet, sheet.cues.map((other) => {
+    if (other.id === cue.id) return { ...cue, start_frame: start, end_frame: end };
+    if (!ripple || other.start_frame < cue.end_frame) return other;
+    const start_frame = other.start_frame + change;
+    const end_frame = other.end_frame + change;
+    integer(start_frame, 0, sheet.duration_frames - 1, '后续灯效起点');
+    integer(end_frame, start_frame + 1, sheet.duration_frames, '后续灯效终点');
+    return { ...other, start_frame, end_frame };
+  }));
+}
+
+export function removeCueFromSheet(sheet, cue, ripple = false) {
+  const length = cue.end_frame - cue.start_frame;
+  const cues = sheet.cues.filter((other) => other.id !== cue.id);
+  return { ...sheet, cues: !ripple ? cues : cues.map((other) => other.start_frame < cue.end_frame ? other : {
+    ...other, start_frame: other.start_frame - length, end_frame: other.end_frame - length,
+  }) };
+}
+
 export function resizeSheet(sheet, seconds) {
   const minFrame = Math.max(1, sheet.cues.at(-1)?.end_frame ?? 0);
   const duration_frames = frameAt(seconds, sheet.fps);
@@ -251,6 +325,6 @@ export function exampleSheet() {
       { start_frame: 120, end_frame: 221, mode: 'gradient', color: '#6BA7FC', end_color: '#CE8AFF' },
       { start_frame: 221, end_frame: 318, mode: 'breathing', color: '#FFAD66', speed: 5 },
       { start_frame: 342, end_frame: 400, mode: 'slow_flash', color: '#F27BA6', speed: 20 },
-    ],
+    ].map((cue) => ({ ...cue, start_frame: cue.start_frame * 2, end_frame: cue.end_frame * 2 })),
   }));
 }

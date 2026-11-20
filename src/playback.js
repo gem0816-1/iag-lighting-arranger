@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { PREVIEW_FPS } from './cue-sheet.js';
 
 function createClock() {
   let seconds = 0;
@@ -17,10 +18,6 @@ function createClock() {
   };
 }
 
-export function useTime(clock) {
-  return useSyncExternalStore(clock.subscribe, clock.read);
-}
-
 function mediaEnd(media) {
   const seconds = media.duration;
   // YouTube exposes play controls before it knows the video's length.
@@ -29,21 +26,31 @@ function mediaEnd(media) {
 
 export function usePlayback(duration, mediaRef, onError) {
   const [clock] = useState(createClock);
-  const [playing, setPlaying] = useState(false);
+  const [direction, setDirection] = useState(0);
+  const directionRef = useRef(0);
+  const playing = direction !== 0;
   const request = useRef(0);
+
+  const transport = useCallback((value) => {
+    directionRef.current = value;
+    setDirection(value);
+  }, []);
 
   const pause = useCallback(() => {
     request.current += 1;
-    mediaRef.current?.pause();
-    setPlaying(false);
-  }, [mediaRef]);
+    const media = mediaRef.current;
+    const wasReverse = directionRef.current < 0;
+    transport(0);
+    media?.pause();
+    if (wasReverse && media && Number.isFinite(media.duration)) media.currentTime = Math.min(clock.read(), mediaEnd(media));
+  }, [clock, mediaRef, transport]);
 
   function playMedia(media) {
     const id = ++request.current;
     media.play().catch((error) => {
       if (id === request.current && mediaRef.current === media && error.name !== 'AbortError') {
         pause();
-        onError(error.name === 'NotAllowedError' ? '请先在视频内点播放，浏览器会允许后续控制。' : '浏览器无法开始播放这段媒体。');
+        onError(error.name === 'NotAllowedError' ? '请先在视频内点播放，再试编排页的播放按钮。' : '浏览器无法开始播放这段媒体。');
       }
     });
   }
@@ -56,16 +63,13 @@ export function usePlayback(duration, mediaRef, onError) {
       const end = mediaEnd(media);
       media.currentTime = Math.min(time, end);
       if (time >= end) media.pause();
-      else if (playing && media.paused && time < limit) playMedia(media);
+      else if (directionRef.current > 0 && media.paused && time < limit) playMedia(media);
     }
     if (time >= limit) pause();
   }
 
-  function toggle() {
-    if (playing) {
-      pause();
-      return;
-    }
+  function play() {
+    if (directionRef.current === 1) return;
     if (clock.read() >= duration) seek(0);
     const media = mediaRef.current;
     if (media && !Number.isFinite(media.duration)) {
@@ -76,42 +80,65 @@ export function usePlayback(duration, mediaRef, onError) {
       media.currentTime = clock.read();
       playMedia(media);
     }
-    setPlaying(true);
+    transport(1);
+  }
+
+  function rewind() {
+    if (directionRef.current < 0 || clock.read() <= 0) return;
+    request.current += 1;
+    transport(-1);
+    mediaRef.current?.pause();
+  }
+
+  function toggle() {
+    if (directionRef.current) pause();
+    else play();
   }
 
   function syncMedia(state, seconds, limit = duration) {
-    if (!Number.isFinite(seconds)) return;
+    if (!Number.isFinite(seconds) || (directionRef.current < 0 && state !== 'playing')) return;
     const media = mediaRef.current;
     if (state === 'paused' && media && clock.read() > mediaEnd(media) && seconds >= mediaEnd(media)) return;
+    if (state === 'playing' && directionRef.current === 1 && seconds < limit) return;
     clock.write(Math.max(0, Math.min(limit, seconds)));
     if (seconds >= limit) {
       if (state === 'playing') pause();
-      else setPlaying(false);
+      else transport(0);
     } else if (state !== 'ended') {
-      setPlaying(state === 'playing');
+      transport(state === 'playing' ? 1 : 0);
     }
   }
 
   useEffect(() => {
-    if (!playing) return undefined;
+    if (!direction) return undefined;
     let last = performance.now();
+    let origin;
+    let renderedFrame = -1;
     let animation;
     function tick(now) {
+      if (directionRef.current !== direction) return;
+      origin ??= now;
+      const frame = Math.floor((now - origin + 0.5) * PREVIEW_FPS / 1000);
+      if (renderedFrame === frame) {
+        animation = requestAnimationFrame(tick);
+        return;
+      }
+      renderedFrame = frame;
       const media = mediaRef.current;
       const time = clock.read();
-      const followsMedia = media && Number.isFinite(media.duration) && time < mediaEnd(media);
+      const followsMedia = direction > 0 && media && Number.isFinite(media.duration) && time < mediaEnd(media);
       // The media element owns the clock while its audio or video is playing.
-      const next = followsMedia ? media.currentTime : time + Math.max(0, now - last) / 1000;
-      clock.write(Math.min(next, duration));
+      const next = followsMedia ? media.currentTime : time + direction * Math.max(0, now - last) / 1000;
+      clock.write(Math.max(0, Math.min(next, duration)));
       last = now;
-      if (next >= duration) pause();
+      if (next >= duration || (direction < 0 && next <= 0)) pause();
       else animation = requestAnimationFrame(tick);
     }
     animation = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animation);
-  }, [clock, duration, mediaRef, pause, playing]);
+  }, [clock, direction, duration, mediaRef, pause]);
 
-  return { clock, playing, pause, seek, toggle, syncMedia };
+  return { clock, playing, play, pause, rewind, seek, toggle, syncMedia };
 }
 
 export async function measureWaveform(file, duration) {

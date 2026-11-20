@@ -1,14 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import { App as AntApp, Button } from 'antd';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { App as AntApp, Button, Select } from 'antd';
 import { DownloadOutlined, FileAddOutlined, FolderOpenOutlined, RedoOutlined, UndoOutlined } from '@ant-design/icons';
 import Inspector, { CommitField } from './Inspector.jsx';
 import Stage from './Stage.jsx';
-import Timeline from './Timeline.jsx';
-import { cueAt, exampleSheet, exportSheet, fileName, frameAt, insertCue, makeSheet, parseSheet, resizeSheet, secondsAt, updateCue } from './cue-sheet.js';
+import Timeline, { ZOOM_LEVELS } from './Timeline.jsx';
+import {
+  cueAt, exampleSheet, exportSheet, fileName, frameAt, insertCue, makeSheet, moveCueOverwrite, parseSheet,
+  removeCueFromSheet, resizeSheet, secondsAt, splitCue, trimCue, updateCue,
+} from './cue-sheet.js';
 import { measureWaveform, usePlayback } from './playback.js';
+import { actionShortcut, presetShortcut, SHORTCUT_PRESETS } from './shortcuts.js';
+import { editPoints, neighborEdit } from './timeline-edit.js';
 
 const DRAFT_KEY = 'iag-web-arranger:draft:v1';
+const PRESET_KEY = 'iag-web-arranger:shortcut-preset';
 const UNDO_LIMIT = 30;
+const PRESET_OPTIONS = Object.entries(SHORTCUT_PRESETS).map(([value, preset]) => ({ value, label: preset.label }));
+
+function initialPreset() {
+  try {
+    const preset = localStorage.getItem(PRESET_KEY);
+    if (Object.hasOwn(SHORTCUT_PRESETS, preset)) return preset;
+  } catch {
+    // The preset still applies for the current session.
+  }
+  return 'resolve';
+}
 
 function initialHistory() {
   let sheet = makeSheet();
@@ -38,15 +55,28 @@ export default function App() {
   const sheet = history.sheet;
   const [selectedId, setSelectedId] = useState(null);
   const [media, setMedia] = useState(null);
+  const [preset, setPreset] = useState(initialPreset);
+  const [tool, setTool] = useState('select');
+  const [snapping, setSnapping] = useState(true);
+  const [zoom, setZoom] = useState(1);
   const [draftSaved, setDraftSaved] = useState(false);
   const inputMedia = useRef(null);
   const inputProject = useRef(null);
   const mediaRef = useRef(null);
   const mediaSequence = useRef(0);
   const projectRequest = useRef(0);
+  const keyboard = useRef(null);
   const duration = secondsAt(sheet.duration_frames, sheet.fps);
   const selected = sheet.cues.find((cue) => cue.id === selectedId);
   const playback = usePlayback(duration, mediaRef, (text) => message.error(text));
+  const boundaries = useMemo(() => editPoints(sheet), [sheet]);
+
+  useLayoutEffect(() => { keyboard.current = onKeyboard; });
+  useEffect(() => {
+    const listener = (event) => keyboard.current(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
 
   useEffect(() => {
     try {
@@ -222,8 +252,6 @@ export default function App() {
   }
 
   function selectCue(cue) {
-    playback.pause();
-    playback.seek(secondsAt(cue.start_frame, sheet.fps));
     setSelectedId(cue.id);
   }
 
@@ -251,37 +279,88 @@ export default function App() {
     });
   }
 
-  function moveCue(cue, start_frame) {
+  function applyCueEdit(cue, range, edge, ripple) {
     run(() => {
-      const end_frame = start_frame + cue.end_frame - cue.start_frame;
-      commit(updateCue(sheet, cue.id, { start_frame, end_frame }));
-      playback.seek(secondsAt(start_frame, sheet.fps));
+      const next = edge ? trimCue(sheet, cue, range.start, range.end, ripple) : moveCueOverwrite(sheet, cue, range.start);
+      if (next === sheet) return;
+      playback.pause();
+      commit(next);
     });
   }
 
-  function removeCue() {
+  function cutCue(cue, frame) {
+    if (!cue) return;
+    run(() => {
+      const next = splitCue(sheet, cue, frame);
+      if (next === sheet) return;
+      playback.pause();
+      playback.seek(secondsAt(frame, sheet.fps));
+      setSelectedId(cue.id);
+      commit(next);
+    });
+  }
+
+  function removeCue(ripple = false) {
     if (!selected) return;
-    commit({ ...sheet, cues: sheet.cues.filter((cue) => cue.id !== selected.id) });
+    playback.pause();
+    commit(removeCueFromSheet(sheet, selected, ripple));
     setSelectedId(null);
   }
 
+  function choosePreset(next) {
+    setPreset(next);
+    try { localStorage.setItem(PRESET_KEY, next); } catch { /* The current tab still uses the preset. */ }
+  }
+
+  function changeZoom(delta) {
+    setZoom((value) => ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, ZOOM_LEVELS.indexOf(value) + delta))]);
+  }
+
   function onKeyboard(event) {
-    if (event.defaultPrevented || event.repeat || event.target.closest('input, textarea, select, [contenteditable="true"], [role="slider"], [role="combobox"]')) return;
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+    const target = event.target;
+    if (event.defaultPrevented || event.isComposing || target.closest?.('input, textarea, select, [contenteditable="true"], [role="slider"], [role="combobox"], [role="dialog"]')) return;
+    const nextPreset = presetShortcut(event);
+    if (nextPreset) {
       event.preventDefault();
-      if (event.shiftKey) redo();
-      else undo();
-    } else if (event.key === ' ' && !event.target.closest('button')) {
-      event.preventDefault();
-      if (media?.status !== 'loading') playback.toggle();
-    } else if (event.key === 'Delete' && selected) {
-      event.preventDefault();
-      removeCue();
+      choosePreset(nextPreset);
+      return;
+    }
+    const action = actionShortcut(event, preset);
+    if (!action || (event.repeat && !['previousFrame', 'previousFrames', 'nextFrame', 'nextFrames'].includes(action))) return;
+    if ((action === 'toggle' || action === 'selectAtPlayhead') && target.closest?.('button, a')) return;
+    event.preventDefault();
+    const frame = frameAt(playback.clock.read(), sheet.fps);
+    const seekFrame = (value) => { playback.pause(); playback.seek(secondsAt(value, sheet.fps)); };
+
+    switch (action) {
+      case 'select': case 'trim': case 'blade': setTool(action); break;
+      case 'snap': setSnapping((value) => !value); break;
+      case 'cut': cutCue(cueAt(sheet.cues, frame), frame); break;
+      case 'lift': removeCue(); break;
+      case 'ripple': removeCue(true); break;
+      case 'toggle': if (media?.status !== 'loading') playback.toggle(); break;
+      case 'play': if (media?.status !== 'loading') playback.play(); break;
+      case 'pause': playback.pause(); break;
+      case 'rewind': playback.rewind(); break;
+      case 'previousFrame': seekFrame(frame - 1); break;
+      case 'previousFrames': seekFrame(frame - 10); break;
+      case 'nextFrame': seekFrame(frame + 1); break;
+      case 'nextFrames': seekFrame(frame + 10); break;
+      case 'previousEdit': seekFrame(neighborEdit(boundaries, frame, -1)); break;
+      case 'nextEdit': seekFrame(neighborEdit(boundaries, frame, 1)); break;
+      case 'selectAtPlayhead': setSelectedId(cueAt(sheet.cues, frame)?.id ?? null); break;
+      case 'start': seekFrame(0); break;
+      case 'end': seekFrame(sheet.duration_frames); break;
+      case 'zoomIn': changeZoom(1); break;
+      case 'zoomOut': changeZoom(-1); break;
+      case 'undo': undo(); break;
+      case 'redo': redo(); break;
+      case 'clear': setSelectedId(null); break;
     }
   }
 
   return (
-    <div className="editor" onKeyDown={onKeyboard}>
+    <div className="editor">
       <header className="app-bar">
         <div className="app-bar-inner">
           <div className="brand"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span><h1><b>IAG</b> 灯光编排</h1></div>
@@ -298,6 +377,7 @@ export default function App() {
           <div className="project-title"><CommitField aria-label="工程名称" variant="borderless" placeholder="未命名编排" maxLength={1024} value={sheet.timeline_name} onCommit={(name) => commit({ ...sheet, timeline_name: name.trim() || '未命名编排' })} /></div>
           <div className="history-actions">
             <span className="save-state"><span />{draftSaved ? '草稿已存本机' : '请导出保存'}</span>
+            <Select aria-label="快捷键套组" className="shortcut-preset" value={preset} options={PRESET_OPTIONS} onChange={choosePreset} popupMatchSelectWidth={false} virtual={false} />
             <Button type="text" icon={<UndoOutlined />} onClick={undo} disabled={!history.past.length} aria-label="撤销" title="撤销" />
             <Button type="text" icon={<RedoOutlined />} onClick={redo} disabled={!history.future.length} aria-label="重做" title="重做" />
           </div>
@@ -326,7 +406,7 @@ export default function App() {
             sheet={sheet}
             run={run}
             onUpdate={editCue}
-            onRemove={removeCue}
+            onRemove={() => removeCue()}
             onResize={resize}
             onExample={() => resetProject(exampleSheet())}
           />
@@ -337,14 +417,22 @@ export default function App() {
           media={media}
           peaks={media?.peaks}
           selectedId={selectedId}
+          zoom={zoom}
+          onZoom={setZoom}
+          tool={tool}
+          onTool={setTool}
+          snapping={snapping}
+          onSnap={() => setSnapping((value) => !value)}
+          shortcuts={SHORTCUT_PRESETS[preset]}
           onSelect={selectCue}
-          onMove={moveCue}
+          onEdit={applyCueEdit}
+          onSplit={cutCue}
           onAdd={addCue}
-          onSeek={(seconds) => { setSelectedId(null); playback.seek(seconds); }}
+          onSeek={playback.seek}
         />
         <footer className="workspace-footer">
           <span>本地文件仅在浏览器读取</span>
-          <span className="shortcuts"><kbd>空格</kbd> 播放 / 暂停 <kbd>Del</kbd> 删除灯效</span>
+          <span className="shortcuts"><kbd>J</kbd> 倒放灯效 <kbd>K</kbd> 暂停 <kbd>L</kbd> 播放 <kbd>Alt+Shift+1/2/3</kbd> 切换套组</span>
         </footer>
       </main>
       <input hidden ref={inputMedia} type="file" aria-label="选择本地媒体文件" accept="audio/*,video/*,.wav,.mp3,.m4a,.ogg,.flac,.mp4,.webm,.mov,.m4v,.mkv" onChange={openMedia} />

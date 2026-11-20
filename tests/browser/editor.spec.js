@@ -68,8 +68,9 @@ test('opens from a Pages subdirectory and creates a cue in sync with local WAV',
   await down.saveAs(output);
   expect(down.suggestedFilename()).toBe('未命名编排.iagcue.json');
   const sheet = JSON.parse(await readFile(output, 'utf8'));
-  expect(sheet.duration_frames).toBe(180);
-  expect(sheet.cues).toEqual([{ start_frame: 45, end_frame: 126, mode: 'gradient', color: '#67E6B1', end_color: '#FFF1A3', brightness: 100 }]);
+  expect(sheet.fps).toEqual({ numerator: 60, denominator: 1 });
+  expect(sheet.duration_frames).toBe(360);
+  expect(sheet.cues).toEqual([{ start_frame: 90, end_frame: 252, mode: 'gradient', color: '#67E6B1', end_color: '#FFF1A3', brightness: 100 }]);
   expect(requests.filter((url) => !url.startsWith('http://127.0.0.1:4187/') && !url.startsWith('blob:'))).toEqual([]);
   expect(errors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('desktop.png'), fullPage: true });
@@ -164,7 +165,7 @@ test('plays and seeks direct HTTPS media and leaves its URL out of the IAG file'
   await page.getByRole('button', { name: '添加灯效' }).click();
   const downloaded = await downloadCue(page);
   const json = await readFile(await downloaded.path(), 'utf8');
-  expect(JSON.parse(json).cues[0].start_frame).toBe(90);
+  expect(JSON.parse(json).cues[0].start_frame).toBe(180);
   expect(json).not.toContain('media.example.test');
   await page.getByRole('button', { name: '移除参考媒体' }).click();
   await expect(page.locator('audio')).toHaveCount(0);
@@ -188,6 +189,61 @@ test('embeds Bilibili and locates the editor at the time entered from the video'
   await page.getByRole('button', { name: '添加灯效' }).click();
   await expect(page.getByLabel('开始（秒）')).toHaveValue('75.5');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+
+test('opens the setup page for the current browser from the Bilibili download link', async ({ page }) => {
+  await page.route('https://player.bilibili.com/player.html?*', (route) => route.fulfill({ body: 'Bilibili frame fixture', contentType: 'text/html' }));
+  await page.goto('./');
+  await loadReference(page, 'https://www.bilibili.com/video/BV1GJ411x7h7/');
+  const agent = await page.evaluate(() => navigator.userAgent);
+  const firefox = /Firefox\//.test(agent);
+  const browser = firefox ? 'firefox' : /Edg\//.test(agent) ? 'edge' : 'chrome';
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('link', { name: '下载同步扩展', exact: true }).click();
+  const setup = await popup;
+  await expect(setup).toHaveURL(new RegExp(`\\?install=${browser}$`));
+  await expect(setup.getByRole('heading', { name: '安装 B 站同步扩展' })).toBeVisible();
+  const address = firefox ? 'about:debugging#/runtime/this-firefox' : `${browser}://extensions/`;
+  await expect(setup.getByLabel('扩展管理地址')).toHaveValue(address);
+  await expect(setup.getByRole('link', { name: /^下载 (Firefox|Edge|Chrome) 扩展/ })).toHaveAttribute('href', firefox ? /\.xpi$/ : /\.zip$/);
+});
+
+test('switches presets, cuts with the blade, and makes a ripple trim with the pointer', async ({ page }) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: '试用示例', exact: true }).click();
+  await page.keyboard.press('b');
+  await expect(page.getByRole('button', { name: '刀片', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const first = page.locator('.cue-block').first();
+  const block = await first.boundingBox();
+  await first.click({ position: { x: block.width / 2, y: 18 } });
+  await expect(page.locator('.cue-block')).toHaveCount(5);
+  await expect(page.getByLabel('播放位置')).toContainText('00:01.600');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.cue-block')).toHaveCount(4);
+
+  await page.keyboard.press('Alt+Shift+2');
+  await expect(page.locator('.shortcut-preset')).toContainText('Premiere Pro');
+  await page.keyboard.press('b');
+  await expect(page.getByRole('button', { name: '波纹修剪', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const edge = await first.locator('.cue-edge-end').boundingBox();
+  const ruler = await page.locator('.ruler').boundingBox();
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2 - ruler.width / 15, edge.y + edge.height / 2, { steps: 16 });
+  await page.mouse.up();
+  await expect(page.getByLabel('结束（秒）')).toHaveValue('2.2');
+  await expect(page.getByRole('button', { name: /^渐变 · 00:03\.000/ })).toBeVisible();
+  await page.keyboard.press('s');
+  await expect(page.getByRole('button', { name: '吸附', exact: true })).toHaveAttribute('aria-pressed', 'false');
+
+  await page.keyboard.press('Alt+Shift+3');
+  await expect(page.locator('.shortcut-preset')).toContainText('Final Cut Pro');
+  await page.keyboard.press('a');
+  await expect(page.getByRole('button', { name: '选择', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('.cue-block')).toHaveCount(3);
+  await page.reload();
+  await expect(page.locator('.shortcut-preset')).toContainText('Final Cut Pro');
 });
 
 test('follows the Bilibili bridge in both directions and retains existing cues', async ({ page }) => {
@@ -235,10 +291,14 @@ test('follows the Bilibili bridge in both directions and retains existing cues',
   const ruler = page.locator('.ruler');
   const box = await ruler.boundingBox();
   await ruler.click({ position: { x: box.width / 2, y: 10 } });
+  const time = page.getByLabel('播放位置').locator('strong');
+  const chosen = await time.textContent();
+  const [minutes, seconds] = chosen.split(':').map(Number);
+  expect(Math.abs(minutes * 60 + seconds - 60)).toBeLessThan(0.2);
   await page.getByRole('button', { name: '播放', exact: true }).click();
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   await expect.poll(() => frameBody.evaluate(() => window.receivedCommands)).toEqual(['seek', 'play', 'pause']);
-  await expect(page.getByLabel('播放位置')).toContainText('01:00.000');
+  await expect(time).toHaveText(chosen);
 });
 
 test('uses the YouTube clock when duration arrives after play and handles blocked videos', async ({ page }) => {
@@ -285,7 +345,11 @@ test('uses the YouTube clock when duration arrives after play and handles blocke
   const ruler = page.locator('.ruler');
   const { width } = await ruler.boundingBox();
   await ruler.click({ position: { x: width / 2, y: 10 } });
-  await expect.poll(() => page.evaluate(() => window.testYouTubePlayer.getCurrentTime())).toBeCloseTo(63, 1);
+  const displayed = await page.getByLabel('播放位置').locator('strong').textContent();
+  const [minutes, seconds] = displayed.split(':').map(Number);
+  const chosen = minutes * 60 + seconds;
+  expect(Math.abs(chosen - 63)).toBeLessThan(0.2);
+  await expect.poll(() => page.evaluate(() => window.testYouTubePlayer.getCurrentTime())).toBeCloseTo(chosen, 3);
 
   await page.evaluate(() => window.testYouTubePlayer.events.onError({ data: 101 }));
   await expect(page.getByText('这条 YouTube 视频限制了站外播放。请换一条允许嵌入的视频。')).toBeVisible();

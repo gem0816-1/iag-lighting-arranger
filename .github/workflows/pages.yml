@@ -25,7 +25,7 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - run: zip -j dist/iag-bilibili-sync.zip bilibili-sync-extension/manifest.json bilibili-sync-extension/frame.js
+      - run: python3 scripts/package-extensions.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

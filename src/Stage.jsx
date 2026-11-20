@@ -1,36 +1,82 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Button } from 'antd';
 import { AudioOutlined, CaretRightOutlined, CloseOutlined, PauseOutlined, StepBackwardOutlined, VideoCameraOutlined } from '@ant-design/icons';
 import { cueAt, formatTime, MODES, sampleColor } from './cue-sheet.js';
-import { useTime } from './playback.js';
 import { BilibiliPosition, ReferenceLinkButton } from './ReferenceMedia.jsx';
 import YouTubePlayer from './YouTubePlayer.jsx';
 import BilibiliPlayer from './BilibiliPlayer.jsx';
 
 function LightPreview({ sheet, clock, playing }) {
-  const time = useTime(clock);
-  const position = time * sheet.fps.numerator / sheet.fps.denominator;
-  const nearest = Math.round(position);
-  const frame = Math.abs(position - nearest) < 1e-7 ? nearest : position;
-  const cue = cueAt(sheet.cues, frame);
-  const baseColor = sampleColor(cue, frame, sheet.fps, false);
-  const color = playing ? sampleColor(cue, frame, sheet.fps) : baseColor;
+  const stage = useRef(null);
+  const emitter = useRef(null);
+  const mode = useRef(null);
+  const colorText = useRef(null);
+
+  useLayoutEffect(() => {
+    const light = emitter.current;
+    const background = stage.current;
+    const label = mode.current;
+    const value = colorText.current;
+    const frameRate = sheet.fps.numerator / sheet.fps.denominator;
+    let previousCue;
+    let previousColor;
+    let previousText;
+
+    function paint() {
+      const time = clock.read();
+      const position = time * frameRate;
+      const exact = Math.round(position);
+      const cue = cueAt(sheet.cues, Math.abs(position - exact) < 1e-7 ? exact : position);
+      const baseColor = sampleColor(cue, position, sheet.fps, false);
+      const color = playing && cue?.mode !== 'gradient' ? sampleColor(cue, position, sheet.fps) : baseColor;
+      if (cue !== previousCue || previousColor === undefined) {
+        background.style.setProperty('--base-color', sampleColor(cue, cue?.start_frame ?? 0, sheet.fps, false));
+        label.textContent = cue ? MODES[cue.mode] : '黑场';
+        previousCue = cue;
+      }
+      if (color !== previousColor) {
+        light.style.setProperty('--light-color', color);
+        previousColor = color;
+      }
+      if (baseColor !== previousText) {
+        value.textContent = baseColor;
+        previousText = baseColor;
+      }
+    }
+
+    paint();
+    return clock.subscribe(paint);
+  }, [clock, playing, sheet]);
+
   return (
-    <div className="light-preview" style={{ '--light-color': color, '--base-color': baseColor }}>
+    <div className="light-preview" ref={stage}>
       <div className="stage-grid" aria-hidden="true" />
       <div className="stage-orbit" aria-hidden="true" />
-      <div className="lightstick" aria-hidden="true"><div className="lightstick-cap" /><div className="lightstick-handle" /></div>
+      <div className="lightstick" aria-hidden="true"><div className="lightstick-cap" ref={emitter} /><div className="lightstick-handle" /></div>
       <div className="stage-status">
         <span className="status-light" aria-hidden="true" />
-        <span>{cue ? MODES[cue.mode] : '黑场'}</span>
-        <code>{baseColor}</code>
+        <span ref={mode} />
+        <code ref={colorText} />
       </div>
     </div>
   );
 }
 
 function TimeReadout({ clock, duration }) {
-  const time = useTime(clock);
-  return <output className="time-readout" aria-label="播放位置" aria-live="off"><strong>{formatTime(time, true)}</strong><span> / {formatTime(duration, true)}</span></output>;
+  const value = useRef(null);
+  useLayoutEffect(() => {
+    const element = value.current;
+    let last;
+    function paint() {
+      const now = Math.round(clock.read() * 1000);
+      if (now === last) return;
+      last = now;
+      element.textContent = formatTime(now / 1000, true);
+    }
+    paint();
+    return clock.subscribe(paint);
+  }, [clock]);
+  return <output className="time-readout" aria-label="播放位置" aria-live="off"><strong ref={value} /><span> / {formatTime(duration, true)}</span></output>;
 }
 
 export default function Stage({

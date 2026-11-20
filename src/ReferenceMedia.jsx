@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Button, Input, Modal } from 'antd';
 import { LinkOutlined } from '@ant-design/icons';
 import { parseReferenceLink, parseReferenceTime } from './reference-links.js';
+import { detectInstaller } from './extension-install.js';
 
 export function ReferenceLinkButton({ onLink }) {
   const [visible, setVisible] = useState(false);
@@ -76,8 +77,8 @@ export function BilibiliPosition({ url, onLocate, waiting }) {
       </form>
       {error && <p className="reference-error" role="alert">{error}</p>}
       <p className="reference-help">
-        {waiting ? '扩展已连接。请在视频内点播放，载入后自动同步。' : '桌面 Chrome／Edge 可安装扩展自动同步。'}{' '}
-        {!waiting && <a href={`${import.meta.env.BASE_URL}iag-bilibili-sync.zip`} download>下载同步扩展</a>}{' '}
+        {waiting ? '扩展已连接。请在视频内点播放，载入后自动同步。' : '桌面浏览器可安装扩展自动同步。'}{' '}
+        {!waiting && <a href={`${import.meta.env.BASE_URL}?install=${detectInstaller(navigator.userAgent)}`} target="_blank" rel="noreferrer">下载同步扩展</a>}{' '}
         <a href={url} target="_blank" rel="noreferrer">到 B 站观看</a>
       </p>
     </div>

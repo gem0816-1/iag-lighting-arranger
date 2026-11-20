@@ -33,11 +33,11 @@ test('samples exclusive ends, gaps and a gradient with Android brightness roundi
 
 test('inserts only in free space, limiting a new cue to the next start frame', () => {
   const demo = exampleSheet();
-  const { sheet, cue } = insertCue(demo, 100);
-  assert.equal(cue.start_frame, 100);
-  assert.equal(cue.end_frame, 120);
+  const { sheet, cue } = insertCue(demo, 200);
+  assert.equal(cue.start_frame, 200);
+  assert.equal(cue.end_frame, 240);
   assert.equal(sheet.cues[1].id, cue.id);
-  assert.throws(() => insertCue(demo, 120), /已有灯效/);
+  assert.throws(() => insertCue(demo, 240), /已有灯效/);
   assert.throws(() => insertCue(demo, demo.duration_frames), /灯效起点/);
 });
 
@@ -45,10 +45,10 @@ test('failed time edits are atomic and accepted moves keep identity', () => {
   const sheet = exampleSheet();
   const original = exportSheet(sheet);
   const first = sheet.cues[0];
-  assert.throws(() => updateCue(sheet, first.id, { end_frame: 121 }), /重叠/);
+  assert.throws(() => updateCue(sheet, first.id, { end_frame: 241 }), /重叠/);
   assert.throws(() => updateCue(sheet, first.id, { start_frame: -1 }), /开始帧/);
   assert.equal(exportSheet(sheet), original);
-  const moved = updateCue(sheet, first.id, { start_frame: 10, end_frame: 106 });
+  const moved = updateCue(sheet, first.id, { start_frame: 10, end_frame: 202 });
   assert.equal(moved.cues[0].id, first.id);
   assert.equal(moved.cues[0].start_frame, 10);
 });
@@ -57,7 +57,7 @@ test('project limits protect all cues and allow a single frame', () => {
   const demo = exampleSheet();
   assert.throws(() => resizeSheet(demo, 3), /最后一个灯效/);
   assert.throws(() => resizeSheet(demo, 86401), /时长/);
-  const short = resizeSheet(makeSheet(), 1 / 30);
+  const short = resizeSheet(makeSheet(), 1 / 60);
   assert.equal(short.duration_frames, 1);
   assert.equal(parseSheet(exportSheet(short)).duration_frames, 1);
 });

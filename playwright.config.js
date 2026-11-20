@@ -7,6 +7,7 @@ export default defineConfig({
   testDir: 'tests/browser',
   use: {
     baseURL,
+    browserName: process.env.IAG_BROWSER_NAME || 'chromium',
     channel: process.env.IAG_BROWSER_CHANNEL || undefined,
     viewport: { width: 1366, height: 850 },
     trace: 'retain-on-failure',

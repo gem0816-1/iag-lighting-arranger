@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import 'antd/dist/reset.css';
 import './style.css';
 import App from './App.jsx';
+import ExtensionInstall from './ExtensionInstall.jsx';
 
 const editorTheme = {
   algorithm: theme.darkAlgorithm,
@@ -20,10 +21,12 @@ const editorTheme = {
   },
 };
 
+const install = new URLSearchParams(window.location.search).get('install');
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ConfigProvider theme={editorTheme} locale={zhCN}>
-      <AntApp><App /></AntApp>
+      <AntApp>{install === null ? <App /> : <ExtensionInstall browser={install} />}</AntApp>
     </ConfigProvider>
   </StrictMode>,
 );
