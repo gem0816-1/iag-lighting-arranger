@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test } from 'node:test';
 import { parseSheet } from '../src/cue-sheet.js';
-import { createStickMonitor, monitorPacket, monitorTarget } from '../src/stick-monitor.js';
+import { createStickMonitor, monitorPacket, monitorTarget, STICK_SCAN_HINT } from '../src/stick-monitor.js';
 
 const sheet = parseSheet(JSON.stringify({
   version: 1, fps: { numerator: 60, denominator: 1 }, duration_frames: 240,
@@ -19,6 +19,7 @@ const state = (seconds, playing = true) => hex(monitorPacket(target(seconds, pla
 const settle = () => delay(0);
 
 function peripheral(acknowledge = async () => {}) {
+  let chooserRequests = 0;
   const calls = [];
   const writes = [];
   const device = new EventTarget();
@@ -40,12 +41,13 @@ function peripheral(acknowledge = async () => {}) {
   const bluetooth = {
     async requestDevice(options) {
       assert.deepEqual(options, { filters: [{ namePrefix: 'EMB_' }], optionalServices: ['0000ed00-0000-1000-8000-00805f9b34fb'] });
+      chooserRequests += 1;
       return device;
     },
   };
   const status = [];
   const monitor = createStickMonitor(bluetooth, (next) => status.push(next));
-  return { calls, writes, status, device, monitor };
+  return { calls, writes, status, device, monitor, chooserRequests: () => chooserRequests };
 }
 
 test('matches the Android color, flash, breath and blackout wire frames', () => {
@@ -101,11 +103,39 @@ test('stops old writes on a lost link and surfaces write failure', async () => {
   first.device.dispatchEvent(new Event('gattserverdisconnected'));
   first.monitor.send(target(1));
   assert.deepEqual(first.writes, []);
-  assert.match(first.status.at(-1).detail, /已断开/);
+  assert.match(first.status.at(-1).detail, /连接中断/);
   const second = peripheral(async () => { throw new Error('Write rejected'); });
   await second.monitor.connect();
   second.monitor.send(target(2));
   await settle();
   assert.equal(second.calls.at(-1), 'disconnect');
   assert.match(second.status.at(-1).detail, /写入失败/);
+});
+
+test('reconnects to the last successful device and discovers its GATT characteristics again', async () => {
+  const { monitor, device, calls, status, chooserRequests } = peripheral();
+  await monitor.reconnect();
+  assert.deepEqual(calls, []);
+  await monitor.connect();
+  device.dispatchEvent(new Event('gattserverdisconnected'));
+  assert.equal(status.at(-1).canReconnect, true);
+  await monitor.reconnect();
+  assert.equal(chooserRequests(), 1);
+  assert.deepEqual(calls.slice(-5), ['connect', 'ed00', 'ed01', 'ed02', 'ED02 subscribed']);
+  assert.equal(status.at(-1).phase, 'connected');
+  await monitor.disconnect();
+  await monitor.connect();
+  assert.equal(chooserRequests(), 2);
+  monitor.dispose();
+  await monitor.reconnect();
+  assert.equal(chooserRequests(), 2);
+  assert.equal(calls.at(-1), 'disconnect');
+});
+
+test('shows the boot-timing hint when the chooser closes without a lamp', async () => {
+  const status = [];
+  const monitor = createStickMonitor({ async requestDevice() { throw new DOMException('Canceled', 'NotFoundError'); } }, (next) => status.push(next));
+  await monitor.connect();
+  assert(status[0].detail.includes(STICK_SCAN_HINT));
+  assert.deepEqual(status.at(-1), { phase: 'idle', detail: `未选中灯棒。${STICK_SCAN_HINT}`, canReconnect: false });
 });

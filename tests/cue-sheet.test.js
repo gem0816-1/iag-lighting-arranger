@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cueAt, exampleSheet, exportSheet, fileName, formatTime, frameAt, insertCue, makeSheet, parseSheet, resizeSheet, sampleColor, secondsAt, updateCue } from '../src/cue-sheet.js';
+import { cueAt, cueIndexAtOrAfter, exampleSheet, exportSheet, fileName, formatTime, frameAt, insertCue, makeSheet, parseSheet, resizeSheet, sampleColor, secondsAt, updateCue } from '../src/cue-sheet.js';
 
 const existing = {
   version: 1,
@@ -29,6 +29,14 @@ test('samples exclusive ends, gaps and a gradient with Android brightness roundi
   assert.equal(cueAt(cues, 90), null);
   assert.equal(sampleColor(cueAt(cues, 60), 60, fps), '#404040');
   assert.equal(sampleColor(null, 90, fps), '#000000');
+});
+
+test('starts drawing at the first cue visible at or after a viewport boundary', () => {
+  const { cues } = parseSheet(JSON.stringify(existing));
+  for (const [frame, index] of [[-1, 0], [0, 0], [29.99, 0], [30, 1], [90, 2], [100, 2], [120, 2], [150, 3]]) {
+    assert.equal(cueIndexAtOrAfter(cues, frame), index);
+  }
+  assert.equal(cueIndexAtOrAfter([], 0), 0);
 });
 
 test('inserts only in free space, limiting a new cue to the next start frame', () => {

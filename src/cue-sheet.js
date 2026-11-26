@@ -162,6 +162,11 @@ export function cueAt(cues, frame) {
   return cue && frame < cue.end_frame ? cue : null;
 }
 
+export function cueIndexAtOrAfter(cues, frame) {
+  const index = floorIndex(cues, frame);
+  return frame < cues[index]?.end_frame ? index : index + 1;
+}
+
 export function insertCue(sheet, frame) {
   if (sheet.cues.length >= MAX_CUES) throw new Error('最多可放置 50,000 个灯效。');
   integer(frame, 0, sheet.duration_frames - 1, '灯效起点');

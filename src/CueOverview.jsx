@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { MODES } from './cue-sheet.js';
+import { cueIndexAtOrAfter, MODES } from './cue-sheet.js';
 
 const HEIGHT = 50;
 
@@ -20,25 +20,36 @@ export default function CueOverview({ cues, duration, viewport, content }) {
       const visible = scroll.clientWidth;
       const left = scroll.scrollLeft;
       if (!total || !visible || !context) return;
-      if (painted?.total === total && left >= painted.left && left + visible <= painted.right + 1) return;
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      if (painted?.total === total && painted.ratio === ratio && left >= painted.left && left + visible <= painted.right + 1) return;
       const start = Math.max(0, Math.floor(left - visible / 2));
       const finish = Math.min(total, Math.ceil(left + visible * 1.5));
       const width = finish - start;
       const pixelsPerFrame = total / duration;
-      const ratio = Math.min(2, window.devicePixelRatio || 1);
-      painted = { left: start, right: finish, total };
-      surface.width = Math.ceil(width * ratio);
-      surface.height = Math.ceil(HEIGHT * ratio);
-      surface.style.width = `${width}px`;
+      painted = { left: start, right: finish, total, ratio };
+      const pixelWidth = Math.ceil(width * ratio);
+      const pixelHeight = Math.ceil(HEIGHT * ratio);
+      if (surface.width !== pixelWidth) surface.width = pixelWidth;
+      if (surface.height !== pixelHeight) surface.height = pixelHeight;
+      if (surface.style.width !== `${width}px`) surface.style.width = `${width}px`;
       surface.style.transform = `translate3d(${start}px, 0, 0)`;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.clearRect(0, 0, pixelWidth / ratio, pixelHeight / ratio);
       context.font = '11px Aptos, Microsoft YaHei UI, sans-serif';
 
-      for (const cue of cues) {
-        const x = cue.start_frame * pixelsPerFrame - start;
+      const first = cueIndexAtOrAfter(cues, start / pixelsPerFrame);
+      for (let index = first; index < cues.length; index += 1) {
+        const cue = cues[index];
+        let x = cue.start_frame * pixelsPerFrame - start;
         const size = (cue.end_frame - cue.start_frame) * pixelsPerFrame;
         if (x + size <= 0) continue;
         if (x >= width) break;
+        if (size <= 1) {
+          // Several cues can share one pixel in the full view. The cue data still drives hit-testing and editing.
+          x = Math.max(0, Math.floor(x));
+          const next = cues[index + 1];
+          if (next && Math.floor(next.start_frame * pixelsPerFrame - start) === x && (next.end_frame - next.start_frame) * pixelsPerFrame <= 1) continue;
+        }
         const bar = Math.max(1, size - 1);
         context.fillStyle = '#213340';
         context.fillRect(x, 6, bar, 37);

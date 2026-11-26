@@ -119,7 +119,7 @@ h1, h2, p { margin: 0; }
 .tick::after { content: ''; position: absolute; left: 0; bottom: 0; height: 7px; border-left: 1px solid #4a6173; }
 .wave-lane, .cue-lane { position: relative; height: 50px; border-bottom: 1px solid var(--line); overflow: hidden; }
 .wave-lane { background: #14222d; }
-.cue-lane { background: #101c27; contain: layout paint; will-change: transform; }
+.cue-lane { background: #101c27; contain: layout style paint; will-change: transform; }
 .cue-overview { position: absolute; inset: 0 auto auto 0; height: 50px; pointer-events: none; }
 .lane-hint { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11px; pointer-events: none; }
 .waveform { display: block; position: absolute; height: 100%; top: 0; left: 0; overflow: visible; pointer-events: none; }

@@ -21,10 +21,12 @@ test('a user-selected lamp follows playback and paused edits, then blanks on dis
     Object.defineProperty(navigator, 'bluetooth', { value: {
       async requestDevice(options) {
         if (!navigator.userActivation.isActive || options.filters[0].namePrefix !== 'EMB_') throw new Error('Unexpected Bluetooth request');
+        window.iagChooserRequests += 1;
         return device;
       },
     } });
     window.iagWrites = writes;
+    window.iagChooserRequests = 0;
   });
   await page.goto('./');
   const project = { version: 1, duration_frames: 240, fps: { numerator: 60, denominator: 1 }, cues: [
@@ -34,6 +36,7 @@ test('a user-selected lamp follows playback and paused edits, then blanks on dis
   ] };
   await page.getByLabel('选择灯光工程文件').setInputFiles({ name: 'monitor.iagcue.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(project)) });
   const monitor = page.getByRole('region', { name: '实体灯棒监看' });
+  await expect(monitor.getByRole('status')).toContainText('保持蓝牙列表打开');
   await monitor.getByRole('button', { name: '连接灯棒' }).click();
   await expect(monitor.getByRole('status')).toContainText('EMB_Preview_Test 已连接');
   expect(await page.evaluate(() => window.iagSubscribed)).toBe(true);
@@ -51,4 +54,10 @@ test('a user-selected lamp follows playback and paused edits, then blanks on dis
   await monitor.getByRole('button', { name: '断开灯棒' }).click();
   await expect(monitor.getByRole('status')).toHaveText('灯棒已断开。');
   await expect.poll(lastWrite).toBe('90,165,4,0,1,0,0,0,4');
+
+  await expect(monitor.getByRole('button', { name: '重选灯棒' })).toBeVisible();
+  await monitor.getByRole('button', { name: '重连灯棒' }).press('Enter');
+  await expect(monitor.getByRole('status')).toContainText('EMB_Preview_Test 已连接');
+  expect(await page.evaluate(() => window.iagChooserRequests)).toBe(1);
+  await expect.poll(lastWrite).toBe('90,165,4,0,1,255,0,0,3');
 });

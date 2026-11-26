@@ -13,7 +13,7 @@ const TOOLS = [
   { id: 'blade', label: '刀片', icon: <ScissorOutlined aria-hidden="true" /> },
 ];
 
-function Ruler({ duration, zoom }) {
+const Ruler = memo(function Ruler({ duration, zoom }) {
   const target = duration / Math.min(160, zoom * 8);
   const power = 10 ** Math.floor(Math.log10(target));
   const unit = Math.max(0.001, [1, 2, 5, 10].map((step) => step * power).find((step) => step >= target) ?? 10 * power);
@@ -23,7 +23,7 @@ function Ruler({ duration, zoom }) {
       {formatTime(time, unit < 1)}
     </span>
   ));
-}
+});
 
 const Waveform = memo(function Waveform({ duration, media, peaks }) {
   if (!media || media.status === 'error') return <span className="lane-hint">选择本地素材或导入视频网址</span>;
@@ -166,17 +166,23 @@ export default function Timeline({
   function previewPointer(active) {
     const frame = frameFromScreen(active, active.x);
     if (!active.cue) {
-      onSeek(secondsAt(frame, sheet.fps));
+      const seconds = secondsAt(frame, sheet.fps);
+      if (seconds !== playback.clock.read()) onSeek(seconds);
       return;
     }
     if (!active.moved && Math.abs(active.x - active.originX) < 3) return;
     active.moved = true;
-    active.range = active.calculate(frame - active.originFrame);
-    if (active.button) active.button.dataset.dragging = 'true';
+    const previous = active.range;
+    const range = active.calculate(frame - active.originFrame);
     const preview = ghost.current;
-    preview.hidden = false;
-    preview.style.width = `${(active.range.end - active.range.start) / active.framesPerPixel}px`;
-    preview.style.transform = `translate3d(${active.range.start / active.framesPerPixel}px, 0, 0)`;
+    const length = range.end - range.start;
+    if (!previous || length !== previous.end - previous.start) preview.style.width = `${length / active.framesPerPixel}px`;
+    if (previous?.start !== range.start) preview.style.transform = `translate3d(${range.start / active.framesPerPixel}px, 0, 0)`;
+    if (!previous) {
+      if (active.button) active.button.dataset.dragging = 'true';
+      preview.hidden = false;
+    }
+    active.range = range;
   }
 
   function movePointer(event) {
@@ -197,8 +203,10 @@ export default function Timeline({
     cancelAnimationFrame(animation.current);
     animation.current = null;
     gesture.current = null;
-    if (active.button) delete active.button.dataset.dragging;
-    ghost.current.hidden = true;
+    if (active.moved) {
+      if (active.button) delete active.button.dataset.dragging;
+      ghost.current.hidden = true;
+    }
     if (apply && active.range) onEdit(active.cue, active.range, active.edge, active.ripple);
   }
 

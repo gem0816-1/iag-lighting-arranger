@@ -6,6 +6,7 @@ const notifications = '0000ed02-0000-1000-8000-00805f9b34fb';
 const BLACK = { color: '#000000', command: 1, speed: null, gradient: null };
 const GRADIENT_MS = 100;
 const WRITE_TIMEOUT_MS = 6000;
+export const STICK_SCAN_HINT = '列表里找不到时，保持蓝牙列表打开，把灯棒关掉两秒再开。';
 
 export function monitorTarget(sheet, seconds, playing) {
   const position = seconds * sheet.fps.numerator / sheet.fps.denominator;
@@ -97,11 +98,12 @@ export function createStickMonitor(bluetooth, report) {
   let phase = 'idle';
   let generation = 0;
   let device;
+  let lastDevice;
   let writer;
 
   function update(next, detail = '') {
     phase = next;
-    report({ phase, detail });
+    report({ phase, detail, canReconnect: Boolean(lastDevice) });
   }
 
   function reset() {
@@ -120,38 +122,49 @@ export function createStickMonitor(bluetooth, report) {
   }
 
   function disconnected() {
-    end('灯棒已断开，可重新连接。');
+    end('灯棒连接中断。');
+  }
+
+  async function open(previousDevice) {
+    if (phase !== 'idle' || !bluetooth?.requestDevice) return;
+    const current = ++generation;
+    if (!previousDevice) update('selecting', STICK_SCAN_HINT);
+    try {
+      const chosen = previousDevice ?? await bluetooth.requestDevice({ filters: [{ namePrefix: 'EMB_' }], optionalServices: [service] });
+      if (current !== generation) return;
+      device = chosen;
+      chosen.addEventListener('gattserverdisconnected', disconnected);
+      update('connecting', '等待灯棒响应…');
+      const characteristic = await withTimeout(async () => {
+        const server = await chosen.gatt.connect();
+        if (current !== generation) {
+          if (device !== chosen) server.disconnect();
+          return null;
+        }
+        const primary = await server.getPrimaryService(service);
+        const write = await primary.getCharacteristic(control);
+        const notify = await primary.getCharacteristic(notifications);
+        if (!write.properties.write) throw new Error('ED01 does not support write with response');
+        if (current !== generation) return null;
+        await notify.startNotifications();
+        return write;
+      }, 12000);
+      if (current !== generation) return;
+      lastDevice = chosen;
+      writer = createWriter(characteristic, () => end('灯效写入失败，已断开灯棒。请重连后再试。'));
+      update('connected', chosen.name?.replace(/\p{Cc}/gu, '') || '荧光棒');
+    } catch (error) {
+      if (current !== generation) return;
+      const canceled = phase === 'selecting' && error.name === 'NotFoundError';
+      if (canceled) end(`未选中灯棒。${STICK_SCAN_HINT}`);
+      else if (error.name === 'SecurityError' || error.name === 'NotAllowedError') end('请允许网页使用蓝牙。');
+      else end('连接失败。请打开蓝牙，并在手机上断开灯棒。');
+    }
   }
 
   return {
-    async connect() {
-      if (phase !== 'idle' || !bluetooth?.requestDevice) return;
-      const current = ++generation;
-      update('selecting', '请选择已开机的 EMB_ 荧光棒。');
-      try {
-        const chosen = await bluetooth.requestDevice({ filters: [{ namePrefix: 'EMB_' }], optionalServices: [service] });
-        if (current !== generation) return;
-        device = chosen;
-        device.addEventListener('gattserverdisconnected', disconnected);
-        update('connecting', '正在连接灯棒…');
-        const characteristic = await withTimeout(async () => {
-          const server = await chosen.gatt.connect();
-          const primary = await server.getPrimaryService(service);
-          const write = await primary.getCharacteristic(control);
-          const notify = await primary.getCharacteristic(notifications);
-          if (!write.properties.write) throw new Error('ED01 does not support write with response');
-          await notify.startNotifications();
-          return write;
-        }, 12000);
-        if (current !== generation) return;
-        writer = createWriter(characteristic, () => end('灯效写入失败，已断开灯棒。请重连后再试。'));
-        update('connected', chosen.name || '荧光棒');
-      } catch (error) {
-        if (current !== generation) return;
-        const canceled = phase === 'selecting' && error.name === 'NotFoundError';
-        end(canceled ? '未选择灯棒。请确认灯棒开机并和其他设备断开。' : '无法连接灯棒。请检查蓝牙和权限，确认灯棒已和其他设备断开。');
-      }
-    },
+    connect: () => open(),
+    reconnect: () => { if (lastDevice) return open(lastDevice); },
     send(output) { if (phase === 'connected') writer.send(output); },
     blackout() { if (phase === 'connected') writer.send(BLACK); },
     async disconnect() {
@@ -166,6 +179,9 @@ export function createStickMonitor(bluetooth, report) {
       }
       if (current === generation) end(detail);
     },
-    dispose: reset,
+    dispose() {
+      reset();
+      lastDevice = undefined;
+    },
   };
 }
